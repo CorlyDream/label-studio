@@ -84,8 +84,15 @@ def validate_storage_instance(request, serializer_class):
     if instance is not None and _project_reassigned(request.data, instance.project_id):
         raise ValidationError('The project cannot be changed.')
 
-    # combine instance fields with request.data
-    serializer = serializer_class(data=request.data)
+    data = request.data.copy()
+    if instance is not None:
+        # Validation forms submit blank values for redacted credentials. Keep
+        # reusing those credentials while passing the authorized row to validation.
+        for field in getattr(serializer_class, 'secure_fields', ()):
+            if field in data and not data[field]:
+                data[field] = getattr(instance, field)
+
+    serializer = serializer_class(instance=instance, data=data)
     serializer.is_valid(raise_exception=True)
 
     # if storage exists, we have to use instance from DB,
@@ -159,19 +166,31 @@ def resolve_own_collection_export_storage(url, project):
     match on bucket name alone and are commonly shared across an organization,
     so accepting any key in the bucket would let a client-supplied URI read
     every other project's exported data through a task it happens to can view.
+
+    Prefer a connection whose configured prefix contains the key. If none fits,
+    retain the first own-collection match so the API boundary check can preserve
+    its separate responses for unsafe keys (400) and unmatched prefixes (404).
     """
+    from io_storages.localfiles.functions import key_within_prefix
     from io_storages.utils import is_own_collection_key, parse_bucket_uri
 
     if not isinstance(url, str):
         return None
-    storage = get_storage_by_url(url, project.get_all_export_storage_objects)
-    if storage is None:
-        return None
-    uri = parse_bucket_uri(url, storage)
-    if uri is None or not is_own_collection_key(uri.path, project.organization_id, project.id):
-        logger.warning(f'Refusing export-storage resolution outside project {project.id} own collection folder')
-        return None
-    return storage
+    storage_objects = iter(project.get_all_export_storage_objects)
+    storage = get_storage_by_url(url, storage_objects)
+    fallback = None
+    while storage is not None:
+        uri = parse_bucket_uri(url, storage)
+        if uri is None or not is_own_collection_key(uri.path, project.organization_id, project.id):
+            logger.warning(f'Refusing export-storage resolution outside project {project.id} own collection folder')
+            return None
+        if fallback is None:
+            fallback = storage
+        prefix = getattr(storage, 'prefix', None)
+        if not isinstance(prefix, str) or prefix == '' or key_within_prefix(uri.path, prefix):
+            return storage
+        storage = get_storage_by_url(url, storage_objects)
+    return fallback
 
 
 def get_import_storage_link_prefetches() -> list[Prefetch]:

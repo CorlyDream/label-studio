@@ -29,6 +29,7 @@ import {
   resolveClassicEntityReviewState,
 } from "@humansignal/core";
 import { isDefined } from "@humansignal/core/lib/utils/helpers";
+import { annotationDeletable } from "@humansignal/core/lib/utils/project-access-ui";
 import { FF_FIT_720_LAZY_LOAD_ANNOTATIONS } from "@humansignal/core/lib/utils/feature-flags";
 import {
   emitAnnotationCreated,
@@ -131,6 +132,10 @@ const AnnotationButtonInner = injector(
       const entityIsAlive = entity ? isAlive(entity) : false;
       const isPrediction = entityIsAlive ? entity.type === "prediction" : false;
       const infoIsHidden = annotationStore?.store?.hasInterface?.("annotations:hide-info");
+      const canDeleteAnnotation =
+        entityIsAlive &&
+        !annotationStore?.viewingAll &&
+        annotationDeletable(entity, store?.user?.id, !store?.hasInterface?.("annotations:delete-own"));
 
       // Building the shared shape every render keeps MobX subscriptions on the entity's
       // live properties — memoizing on the entity reference would make the strip stop
@@ -146,7 +151,7 @@ const AnnotationButtonInner = injector(
         () => ({
           groundTruthEnabled: Boolean(capabilities.groundTruthEnabled),
           enableCreateAnnotation: Boolean(capabilities.enableCreateAnnotation),
-          enableAnnotationDelete: Boolean(capabilities.enableAnnotationDelete),
+          enableAnnotationDelete: Boolean(capabilities.enableAnnotationDelete) && canDeleteAnnotation,
           enablePredictionDelete: Boolean(capabilities.enablePredictionDelete),
           enableAnnotations: capabilities.enableAnnotations !== false,
           enablePredictions: capabilities.enablePredictions !== false,
@@ -160,7 +165,7 @@ const AnnotationButtonInner = injector(
           enablePerformanceDashboard: isLSE && hasProjectId,
           showUserInfo: !infoIsHidden,
         }),
-        [capabilities, store, isLSE, hasProjectId, infoIsHidden],
+        [capabilities, store, isLSE, hasProjectId, infoIsHidden, canDeleteAnnotation],
       );
 
       const handlers: AnnotationActionHandlers = useMemo(

@@ -52,14 +52,10 @@ export const DataManagerPage = ({ ...props }) => {
 
     const generation = initGenerationRef.current;
 
-    // Listing ML backends needs project management. A member who only annotates
-    // would get 403 here, so skip the request when the server says they cannot manage.
-    const mlBackends =
-      project.access?.can_manage === false
-        ? []
-        : await api.callApi("mlBackends", {
-            params: { project: project.id },
-          });
+    // Annotation discovery exposes IDs only and is available to project members.
+    const mlBackends = await api.callApi("mlInteractiveBackends", {
+      params: { project: project.id },
+    });
 
     if (generation !== initGenerationRef.current || dataManagerRef.current || !root.current) {
       return;

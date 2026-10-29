@@ -16,6 +16,7 @@ import { when, runInAction } from "mobx";
 
 import { imageCache } from "@humansignal/core";
 import {
+  annotationDeletable,
   annotationEditable,
   holdProjectAccessDenied,
   isProjectAccessHeld,
@@ -177,6 +178,9 @@ export class LSFWrapper {
     }
 
     let interfaces = [...DEFAULT_INTERFACES];
+    const canManage = this.project?.access?.can_manage !== false;
+
+    if (!canManage) interfaces.push("annotations:delete-own");
 
     if (this.project.enable_empty_annotation === false) {
       interfaces.push("annotations:deny-empty");
@@ -196,12 +200,11 @@ export class LSFWrapper {
         interfaces.push("skip");
       }
     } else {
-      const canManage = this.project?.access?.can_manage !== false;
       interfaces.push(
         "infobar",
         "annotations:add-new",
         "annotations:view-all",
-        ...(canManage ? ["annotations:delete"] : []),
+        "annotations:delete",
         "annotations:tabs",
         "predictions:tabs",
         ...(canManage ? ["predictions:delete"] : []),
@@ -736,11 +739,7 @@ export class LSFWrapper {
 
     for (const annotation of annotations) {
       if (!annotation || annotation.type === "prediction") continue;
-      const editable = annotationEditable(
-        { completed_by: annotation.completed_by ?? annotation.user },
-        currentUserId,
-        canManage,
-      );
+      const editable = annotationEditable(annotation, currentUserId, canManage);
       // Only tighten. View All already set editable=false before selectAnnotation;
       // calling setEditable(true) would reopen that read-only mode.
       if (!editable) annotation.setEditable?.(false);
@@ -1028,6 +1027,15 @@ export class LSFWrapper {
   /**@private */
   onDeleteAnnotation = async (ls, annotation) => {
     if (isProjectAccessHeld()) return;
+    if (
+      ls?.annotationStore?.viewingAll ||
+      !annotationDeletable(
+        annotation,
+        ls?.user?.id ?? window.APP_SETTINGS?.user?.id,
+        this.project?.access?.can_manage !== false,
+      )
+    )
+      return;
     const { task } = this;
     const deletedAnnotationPk = annotation.pk;
     const taskId = task.id;

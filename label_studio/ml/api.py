@@ -15,6 +15,7 @@ from ml.serializers import (
     MLBackendSerializer,
     MLBackendTrainRequestSerializer,
     MLInteractiveAnnotatingRequest,
+    MLInteractiveBackendSerializer,
 )
 from projects.action_permissions import ensure_project_manage, ensure_project_visible
 from projects.models import Project, Task
@@ -60,6 +61,25 @@ def _project_from_payload(project_id):
         return Project.objects.filter(pk=project_id).first()
     except (TypeError, ValueError):
         return None
+
+
+class MLInteractiveBackendListAPI(generics.ListAPIView):
+    """Discover interactive predictors for a project the requester can annotate.
+
+    Unlike the management list, this reads stored identifiers without probing
+    remote backends or exposing their configuration. Hidden projects are 404.
+    """
+
+    permission_required = all_permissions.projects_view
+    serializer_class = MLInteractiveBackendSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return MLBackend.objects.none()
+        project = generics.get_object_or_404(Project, pk=self.request.query_params.get('project'))
+        ensure_project_visible(self.request.user, project)
+        return project.ml_backends.filter(is_interactive=True).only('id', 'is_interactive').order_by('id')
 
 
 @method_decorator(

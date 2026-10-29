@@ -58,6 +58,7 @@ export const API_CONFIG = {
 
     // ML
     mlBackends: "GET:/ml",
+    mlInteractiveBackends: "GET:/ml/interactive-backends",
     mlBackend: "GET:/ml/:pk",
     addMLBackend: "POST:/ml",
     updateMLBackend: "PATCH:/ml/:pk",

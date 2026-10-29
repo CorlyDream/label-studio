@@ -9,9 +9,9 @@ from core.permissions import all_permissions
 from core.utils.common import load_func
 from core.utils.exceptions import extract_message
 from django.conf import settings
-from projects.action_permissions import ProjectActionPermission
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import extend_schema
+from projects.action_permissions import ProjectActionPermission
 from projects.models import Project
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -141,8 +141,17 @@ class ResolveStorageUriAPIMixin:
 
         # Try to find storage by URL
         project = instance if isinstance(instance, Project) else instance.project
-        storage_objects = project.get_all_import_storage_objects
+        storage_objects = iter(project.get_all_import_storage_objects)
         storage = get_storage_by_url(fileuri, storage_objects)
+        while storage is not None:
+            boundary = storage_key_boundary_response(storage, fileuri)
+            if boundary is None:
+                break
+            if boundary.status_code != status.HTTP_404_NOT_FOUND:
+                return boundary
+            # Several connections may share a bucket with different prefixes.
+            # Continue through that bucket's connections until the key is allowed.
+            storage = get_storage_by_url(fileuri, storage_objects)
         if not storage:
             # Fall back to the project's own export targets: assets the project
             # produced (Data Collection submissions) live there and must still
@@ -183,7 +192,7 @@ class ResolveStorageUriAPIMixin:
 
         if presign:
             # Redirect to presigned URL (original flow)
-            return self.redirect_to_presign_url(fileuri, instance, model_name)
+            return self.redirect_to_presign_url(fileuri, instance, model_name, storage=storage)
         else:
             return self.proxy_data_from_storage(request, fileuri, project, storage)
 
@@ -224,10 +233,17 @@ class ResolveStorageUriAPIMixin:
         response['X-Streamer-Action'] = 'delegate'
         return response
 
-    def redirect_to_presign_url(self, fileuri: str, instance: Union[Task, Project], model_name: str) -> Response:
+    def redirect_to_presign_url(
+        self, fileuri: str, instance: Union[Task, Project], model_name: str, storage=None
+    ) -> Response:
         """Generate and redirect to a presigned URL for the given file URI"""
         try:
-            resolved = instance.resolve_storage_uri(fileuri)
+            if storage is None:
+                resolved = instance.resolve_storage_uri(fileuri)
+            else:
+                # Keep the connection that passed the prefix boundary check;
+                # resolving through the instance would select by bucket again.
+                resolved = {'url': storage.generate_http_url(fileuri), 'presign_ttl': storage.presign_ttl}
         except Exception as exc:
             logger.error(f'Failed to resolve storage uri {fileuri} for {model_name} {instance.id}: {exc}')
             return Response(status=status.HTTP_404_NOT_FOUND)

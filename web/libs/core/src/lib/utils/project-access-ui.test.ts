@@ -1,6 +1,7 @@
 import {
   PROJECT_ACCESS_HELD_EVENT,
   PROJECT_ACCESS_HELD_KEY,
+  annotationEditable,
   clearProjectAccessHold,
   holdProjectAccessDenied,
   httpMethodFromEndpoint,
@@ -9,6 +10,43 @@ import {
   shouldHoldProjectRequestDenied,
   subscribeProjectAccessHeld,
 } from "./project-access-ui";
+
+describe("annotation ownership", () => {
+  test.each([
+    [{ id: 41, completed_by: null }, false],
+    [{ id: 41 }, false],
+    [{ id: "local-id", pk: "41", user: null }, false],
+    [{ id: "local-id", pk: null, user: null, userGenerate: true, sentUserGenerate: false }, true],
+    [{ id: "local-id", pk: undefined, user: null }, true],
+    [{ id: 41, completed_by: { id: "7" } }, true],
+    [{ id: 41, completed_by: { id: 8 } }, false],
+    [{ id: "local-id", pk: "41", user: { id: 7 } }, true],
+    [{ id: "local-id", pk: "41", user: { id: 8 } }, false],
+  ])("member editability for %j is %j", (annotation, expected) => {
+    expect(annotationEditable(annotation, 7, false)).toBe(expected);
+  });
+
+  test("a manager can edit a persisted annotation whose author was deleted", () => {
+    expect(annotationEditable({ id: 41, completed_by: null }, 7, true)).toBe(true);
+  });
+
+  test.each([
+    [false, null, false],
+    [false, 7, true],
+    [false, 8, false],
+    [true, 8, false],
+  ])("private draft editability requires its owner (manager=%j, owner=%j)", (canManage, owner, expected) => {
+    const draft = {
+      id: "local-id",
+      pk: null,
+      user: owner,
+      userGenerate: true,
+      sentUserGenerate: false,
+      draftId: 12,
+    };
+    expect(annotationEditable(draft, 7, canManage)).toBe(expected);
+  });
+});
 
 afterEach(() => {
   clearProjectAccessHold();

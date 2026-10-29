@@ -57,6 +57,44 @@ class MLAccessTests(APITestCase):
             self.assertNotIn(ML_PASSWORD, response.content.decode())
         update_state.assert_not_called()
 
+    def test_member_can_discover_interactive_backends_without_management_metadata(self):
+        """Annotation setup must discover interactive IDs without exposing connection settings."""
+        world = make_access_world()
+        backend = self._backend(world.project_1)
+        backend.extra_params = {'api_key': PROVIDER_SECRET}
+        backend.save(update_fields=['extra_params'])
+        MLBackend.objects.create(project=world.project_1, url='http://batch.example', is_interactive=False)
+        self._backend(world.project_2)
+        self.client.force_authenticate(world.member_a)
+
+        with patch('projects.models.Project.update_ml_backends_state') as update_state:
+            response = self.client.get('/api/ml/interactive-backends', {'project': world.project_1.id})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), [{'id': backend.id, 'is_interactive': True}])
+        update_state.assert_not_called()
+
+    def test_interactive_backend_discovery_hides_inaccessible_projects_and_revoked_grants(self):
+        """Safe metadata still requires a current project grant before returning any IDs."""
+        world = make_access_world()
+        self._backend(world.project_1)
+        self.client.force_authenticate(world.member_a)
+        hidden = self.client.get('/api/ml/interactive-backends', {'project': world.project_2.id})
+        self.assertEqual(hidden.status_code, 404, hidden.content)
+
+        world.project_1.members.filter(user=world.member_a).update(enabled=False)
+        revoked = self.client.get('/api/ml/interactive-backends', {'project': world.project_1.id})
+        self.assertEqual(revoked.status_code, 404, revoked.content)
+
+    def test_manager_interactive_backend_discovery_supports_empty_projects(self):
+        """Projects without interactive models initialize normally for managers too."""
+        world = make_access_world()
+        MLBackend.objects.create(project=world.project_1, url='http://batch.example', is_interactive=False)
+        self.client.force_authenticate(world.creator)
+        response = self.client.get('/api/ml/interactive-backends', {'project': world.project_1.id})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), [])
+
     def test_member_train_and_test_do_not_call_the_backend(self):
         world = make_access_world()
         backend = self._backend(world.project_1)

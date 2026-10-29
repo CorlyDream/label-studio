@@ -1,7 +1,15 @@
 type AnnotationOwner = number | string | { id?: number | string | null } | null | undefined;
 
 type AnnotationLike = {
+  id?: number | string | null;
+  pk?: number | string | null;
   completed_by?: AnnotationOwner;
+  user?: AnnotationOwner;
+  userGenerate?: boolean;
+  sentUserGenerate?: boolean;
+  draftId?: number | string | null;
+  editable?: boolean;
+  readonly?: boolean;
 };
 
 /** Shared across bundles. Data Manager and ApiProvider must see the same hold. */
@@ -55,21 +63,40 @@ installPathnameWatch();
 
 /**
  * Whether the current user may edit this annotation.
- * Managers can edit any result. Members can edit their own, including a new
- * result that does not have an author yet.
+ * Managers can edit saved results. Private drafts require their owner; members
+ * can also edit a new result that does not have an author yet.
  */
 export function annotationEditable(
   annotation: AnnotationLike | null | undefined,
   currentUserId: number | string | null | undefined,
   canManage: boolean,
 ): boolean {
-  if (canManage) return true;
+  const privateDraft = annotation?.userGenerate === true && annotation.sentUserGenerate === false && annotation.draftId;
+  if (canManage && !privateDraft) return true;
 
-  const completedBy = annotation?.completed_by;
+  const completedBy = annotation?.completed_by ?? annotation?.user;
   const ownerId = completedBy && typeof completedBy === "object" ? completedBy.id : completedBy;
 
-  if (ownerId == null || ownerId === "") return true;
+  if (ownerId == null || ownerId === "") {
+    if (privateDraft) return false;
+    // API annotations use id; editor models always have pk and an unrelated
+    // transient id, even before they have been submitted.
+    const savedId = annotation && "pk" in annotation ? annotation.pk : annotation?.id;
+    return (
+      savedId == null || savedId === "" || (annotation?.userGenerate === true && annotation.sentUserGenerate === false)
+    );
+  }
   return String(ownerId) === String(currentUserId);
+}
+
+/** Deletion respects ownership as well as the editor's read-only state. */
+export function annotationDeletable(
+  annotation: AnnotationLike | null | undefined,
+  currentUserId: number | string | null | undefined,
+  canManage: boolean,
+): boolean {
+  if (!annotation || annotation.editable === false || annotation.readonly) return false;
+  return annotationEditable(annotation, currentUserId, canManage);
 }
 
 /**

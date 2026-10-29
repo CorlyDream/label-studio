@@ -1074,6 +1074,12 @@
         "decorators": ""
     },
     {
+        "url": "/api/ml/interactive-backends",
+        "module": "ml.api.MLInteractiveBackendListAPI",
+        "name": "ml:api:ml-interactive-list",
+        "decorators": ""
+    },
+    {
         "url": "/api/ml/<int:pk>",
         "module": "ml.api.MLBackendDetailAPI",
         "name": "ml:api:ml-detail",
