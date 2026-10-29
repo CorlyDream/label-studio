@@ -2,6 +2,7 @@
 
 from django.urls import reverse
 from labels_manager.models import Label, LabelLink
+from projects.models import ProjectMember
 from projects.tests.access_setup import make_access_world
 from rest_framework.test import APITestCase
 from tasks.models import Annotation
@@ -197,3 +198,89 @@ class LabelListAccessTests(APITestCase):
             self._ids(self.client.get(reverse('labels_manager:api-labels:label_link-list'))),
             {self.visible_link.id, self.hidden_link.id},
         )
+
+
+class SharedLabelWriteAccessTests(APITestCase):
+    def setUp(self):
+        self.world = make_access_world()
+        self.label = Label.objects.create(
+            title='Shared',
+            value={'choices': ['Shared']},
+            created_by=self.world.creator,
+            organization=self.world.organization,
+        )
+        self.own_link = LabelLink.objects.create(project=self.world.project_1, label=self.label, from_name='label')
+        self.other_link = LabelLink.objects.create(project=self.world.project_2, label=self.label, from_name='label')
+        self.url = reverse('labels_manager:api-labels:label-detail', kwargs={'pk': self.label.pk})
+        self.client.force_authenticate(self.world.creator)
+
+    def _assert_unchanged(self):
+        self.label.refresh_from_db()
+        self.assertEqual(self.label.title, 'Shared')
+        self.assertEqual(self.label.value, {'choices': ['Shared']})
+        self.assertSetEqual(
+            set(LabelLink.objects.filter(label=self.label).values_list('pk', flat=True)),
+            {self.own_link.pk, self.other_link.pk},
+        )
+
+    def test_hidden_link_blocks_global_delete_without_removing_either_link(self):
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 404, response.content)
+        self._assert_unchanged()
+
+    def test_hidden_link_blocks_patch_and_put_without_changing_shared_label(self):
+        payload = {
+            'title': 'Changed',
+            'value': {'choices': ['Changed']},
+            'created_by': self.world.creator.pk,
+            'organization': self.world.organization.pk,
+        }
+        for method in ('patch', 'put'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(self.url, payload, format='json')
+                self.assertEqual(response.status_code, 404, response.content)
+                self._assert_unchanged()
+
+    def test_visible_unmanaged_link_blocks_writes_with_403(self):
+        ProjectMember.objects.create(project=self.world.project_2, user=self.world.creator, enabled=True)
+        for method in ('patch', 'delete'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(self.url, {'title': 'Changed'}, format='json')
+                self.assertEqual(response.status_code, 403, response.content)
+                self._assert_unchanged()
+
+    def test_owner_can_update_and_delete_shared_label(self):
+        self.client.force_authenticate(self.world.owner)
+        response = self.client.patch(self.url, {'title': 'Changed'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.label.refresh_from_db()
+        self.assertEqual(self.label.title, 'Changed')
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertFalse(Label.objects.filter(pk=self.label.pk).exists())
+        self.assertFalse(LabelLink.objects.filter(pk__in=[self.own_link.pk, self.other_link.pk]).exists())
+
+    def test_creator_of_every_linked_project_can_update_and_delete_shared_label(self):
+        self.world.project_2.created_by = self.world.creator
+        self.world.project_2.save(update_fields=['created_by'])
+        response = self.client.patch(self.url, {'title': 'Changed'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertFalse(Label.objects.filter(pk=self.label.pk).exists())
+
+    def test_single_project_creator_can_still_update_and_delete_label(self):
+        self.other_link.delete()
+        response = self.client.patch(self.url, {'title': 'Changed'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertFalse(Label.objects.filter(pk=self.label.pk).exists())
+
+    def test_deleting_own_link_keeps_shared_label_and_hidden_link(self):
+        url = reverse('labels_manager:api-labels:label_link-detail', kwargs={'pk': self.own_link.pk})
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertTrue(Label.objects.filter(pk=self.label.pk).exists())
+        self.assertTrue(LabelLink.objects.filter(pk=self.other_link.pk).exists())
+        self.assertFalse(LabelLink.objects.filter(pk=self.own_link.pk).exists())

@@ -253,6 +253,12 @@ class ProjectActionPermission(BasePermission):
         action = _resolve_request_action(view, request, obj)
         if action is None:
             return False
+        if resolve_permission_name(view, request) in ('labels.change', 'labels.delete'):
+            from labels_manager.models import Label
+
+            if isinstance(obj, Label):
+                _enforce_label_write(getattr(request, 'user', None), obj)
+                return True
         _enforce(getattr(request, 'user', None), action, obj)
         return True
 
@@ -434,6 +440,23 @@ def _enforce(user, action, obj) -> None:
         _enforce_self(user, obj)
         return
     raise NotFound()
+
+
+def _enforce_label_write(user, label) -> None:
+    """Require management of every project affected by a shared label write."""
+    from labels_manager.models import LabelLink
+
+    # LabelAPI prefetches only visible links, so its reverse relation cache
+    # cannot establish which projects a global update or deletion affects.
+    projects = [link.project for link in LabelLink.objects.filter(label_id=label.pk).select_related('project')]
+    if not projects:
+        raise NotFound()
+    # Check all visibility first so a hidden project remains 404 even when an
+    # earlier visible project would reject management with 403.
+    for project in projects:
+        ensure_project_visible(user, project)
+    for project in projects:
+        ensure_project_manage(user, project)
 
 
 def _enforce_self(user, obj) -> None:

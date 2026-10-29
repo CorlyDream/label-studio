@@ -128,7 +128,7 @@ class ProjectSerializer(FlexFieldsModelSerializer):
         default=None, read_only=True, help_text='Tasks with annotations count'
     )
 
-    created_by = UserSimpleSerializer(default=CreatedByFromContext(), help_text='Project owner')
+    created_by = UserSimpleSerializer(read_only=True, default=CreatedByFromContext(), help_text='Project owner')
 
     control_weights = serializers.DictField(
         child=ControlTagWeightSerializer(),

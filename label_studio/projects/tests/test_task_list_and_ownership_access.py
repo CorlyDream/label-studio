@@ -70,6 +70,38 @@ class ProjectOwnershipUpdateTests(APITestCase):
     def _detail(self, project):
         return reverse('projects:api:project-detail', kwargs={'pk': project.id})
 
+    def test_put_without_creator_preserves_ownership_and_access(self):
+        world = make_access_world()
+        self.client.force_authenticate(world.creator)
+        url = self._detail(world.project_1)
+
+        response = self.client.put(url, {'title': 'Updated title'}, format='json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        world.project_1.refresh_from_db()
+        self.assertEqual(world.project_1.created_by_id, world.creator.id)
+        self.assertEqual(world.project_1.organization_id, world.organization.id)
+        self.assertEqual(world.project_1.title, 'Updated title')
+        detail = self.client.get(url)
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertTrue(detail.json()['access']['can_manage'])
+
+    def test_explicit_creator_is_ignored_on_put_and_patch(self):
+        world = make_access_world()
+        self.client.force_authenticate(world.creator)
+        for method in ('put', 'patch'):
+            for creator in (None, world.member_a.id, {'id': world.member_a.id}):
+                with self.subTest(method=method, creator=creator):
+                    response = getattr(self.client, method)(
+                        self._detail(world.project_1),
+                        {'created_by': creator, 'description': 'edited'},
+                        format='json',
+                    )
+                    self.assertEqual(response.status_code, 200, response.content)
+                    world.project_1.refresh_from_db()
+                    self.assertEqual(world.project_1.created_by_id, world.creator.id)
+                    self.assertEqual(world.project_1.description, 'edited')
+
     def test_patch_cannot_move_a_project_to_another_organization(self):
         world = make_access_world()
         self.client.force_authenticate(world.creator)

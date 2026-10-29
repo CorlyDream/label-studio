@@ -1068,29 +1068,35 @@ class AnnotationAPI(generics.RetrieveUpdateDestroyAPIView):
     def perform_destroy(self, annotation):
         delete_annotation_with_retry(annotation)
 
+    @transaction.atomic
     def perform_update(self, serializer):
+        """Save validated annotation changes; ground-truth changes require management.
+
+        Authorization precedes all writes, including task metrics and changes
+        to other annotations. Resending an unchanged flag has no such effects.
+        """
+        annotation = serializer.instance
+        self._ensure_can_write(annotation)
+        ground_truth = serializer.validated_data.get('ground_truth', annotation.ground_truth)
+        ground_truth_changed = ground_truth != annotation.ground_truth
+        if ground_truth_changed:
+            ensure_project_manage(self.request.user, annotation.project)
+
         # Clients resend completed_by. Updates never reassign the author.
         serializer.validated_data.pop('completed_by', None)
-        super().perform_update(serializer)
-
-    def update(self, request, *args, **kwargs):
-        # save user history with annotator_id, time & annotation result
-        annotation = self.get_object()
-        self._ensure_can_write(annotation)
         # use updated instead of save to avoid duplicated signals
-        Annotation.objects.filter(id=annotation.id).update(updated_by=request.user)
+        Annotation.objects.filter(id=annotation.id).update(updated_by=self.request.user)
 
         task = annotation.task
-        if self.request.data.get('ground_truth'):
+        if ground_truth_changed and ground_truth:
             task.ensure_unique_groundtruth(annotation_id=annotation.id)
         task.update_is_labeled()
         task.save()  # refresh task metrics
 
-        result = super(AnnotationAPI, self).update(request, *args, **kwargs)
+        super().perform_update(serializer)
 
         task.update_is_labeled()
         task.save(update_fields=['updated_at'])  # refresh task metrics
-        return result
 
     def get(self, request, *args, **kwargs):
         return super(AnnotationAPI, self).get(request, *args, **kwargs)
@@ -1230,6 +1236,9 @@ class AnnotationsListAPI(GetParentObjectMixin, generics.ListCreateAPIView):
         _reject_mismatched_parents(task, ser.validated_data)
         _reject_foreign_author(user, ser.validated_data)
         check_annotation_parents(task, ser.validated_data)
+        ground_truth = ser.validated_data.get('ground_truth', False)
+        if ground_truth:
+            ensure_project_manage(user, task.project)
 
         # Check if task is being skipped and if it's allowed
         was_cancelled_get = bool_from_request(self.request.GET, 'was_cancelled', False)
@@ -1286,7 +1295,7 @@ class AnnotationsListAPI(GetParentObjectMixin, generics.ListCreateAPIView):
             logger.debug(f'Remove draft {draft_id} after creating annotation {annotation.id}')
             self.delete_draft(draft_id, annotation.id)
 
-        if self.request.data.get('ground_truth'):
+        if ground_truth:
             annotation.task.ensure_unique_groundtruth(annotation_id=annotation.id)
 
         fill_history_annotation(user, task, annotation)

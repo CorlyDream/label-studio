@@ -6,8 +6,14 @@ from django.urls import reverse
 from projects.models import ProjectMember
 from projects.tests.access_setup import make_access_world
 from rest_framework.test import APITestCase
-from tasks.models import Annotation, AnnotationDraft, Prediction
-from tasks.tests.factories import AnnotationDraftFactory, AnnotationFactory, PredictionFactory, TaskFactory
+from tasks.models import Annotation, AnnotationDraft, Prediction, Task, TaskLock
+from tasks.tests.factories import (
+    AnnotationDraftFactory,
+    AnnotationFactory,
+    PredictionFactory,
+    TaskFactory,
+    TaskLockFactory,
+)
 
 SECRET_DRAFT_TEXT = 'secret-draft-text'
 SECRET_DRAFT_RESULT = [
@@ -254,6 +260,119 @@ class AnnotationAccessTests(APITestCase):
             ProjectMember.objects.filter(project=world.project_1, user=world.unassigned).count(),
             before,
         )
+
+
+class GroundTruthAccessTests(APITestCase):
+    def setUp(self):
+        self.world = make_access_world()
+        self.task = TaskFactory(project=self.world.project_1)
+        self.foreign = AnnotationFactory(
+            task=self.task,
+            completed_by=self.world.member_b,
+            ground_truth=True,
+            result=[{'id': 'kept'}],
+        )
+        self.own = AnnotationFactory(task=self.task, completed_by=self.world.member_a, ground_truth=False, result=[])
+        self.detail_url = reverse('tasks:api-annotations:annotation-detail', kwargs={'pk': self.own.id})
+        self.create_url = reverse('tasks:api:task-annotations', kwargs={'pk': self.task.id})
+        self.client.force_authenticate(self.world.member_a)
+
+    def test_member_cannot_promote_own_annotation_or_change_task_metrics(self):
+        annotations_before = list(Annotation.objects.filter(task=self.task).order_by('id').values())
+        task_before = Task.objects.filter(pk=self.task.id).values().get()
+
+        response = self.client.patch(
+            self.detail_url, {'ground_truth': True, 'result': [{'id': 'changed'}]}, format='json'
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(list(Annotation.objects.filter(task=self.task).order_by('id').values()), annotations_before)
+        self.assertEqual(Task.objects.filter(pk=self.task.id).values().get(), task_before)
+
+    def test_member_cannot_create_groundtruth_or_consume_draft_and_lock(self):
+        draft = AnnotationDraftFactory(task=self.task, user=self.world.member_a, result=[])
+        lock = TaskLockFactory(task=self.task, user=self.world.member_a)
+        annotations_before = list(Annotation.objects.filter(task=self.task).order_by('id').values())
+        task_before = Task.objects.filter(pk=self.task.id).values().get()
+        self.world.member_a.refresh_from_db()
+        activity_before = self.world.member_a.activity_at
+
+        response = self.client.post(
+            self.create_url, {'ground_truth': True, 'result': [], 'draft_id': draft.id}, format='json'
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(list(Annotation.objects.filter(task=self.task).order_by('id').values()), annotations_before)
+        self.assertEqual(Task.objects.filter(pk=self.task.id).values().get(), task_before)
+        self.assertTrue(AnnotationDraft.objects.filter(pk=draft.id).exists())
+        self.assertTrue(TaskLock.objects.filter(pk=lock.id).exists())
+        self.world.member_a.refresh_from_db()
+        self.assertEqual(self.world.member_a.activity_at, activity_before)
+
+    def test_member_cannot_demote_own_groundtruth(self):
+        Annotation.objects.filter(pk=self.own.id).update(ground_truth=True)
+
+        response = self.client.patch(self.detail_url, {'ground_truth': False}, format='json')
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.own.refresh_from_db()
+        self.assertTrue(self.own.ground_truth)
+
+    def test_member_can_edit_result_with_unchanged_false_groundtruth(self):
+        for value in (False, 'false'):
+            with self.subTest(ground_truth=value):
+                response = self.client.patch(
+                    self.detail_url, {'ground_truth': value, 'result': [{'id': 'edited'}]}, format='json'
+                )
+                self.assertEqual(response.status_code, 200, response.content)
+                self.own.refresh_from_db()
+                self.foreign.refresh_from_db()
+                self.assertEqual(self.own.result, [{'id': 'edited'}])
+                self.assertFalse(self.own.ground_truth)
+                self.assertTrue(self.foreign.ground_truth)
+
+    def test_member_can_create_with_false_string_without_clearing_groundtruth(self):
+        response = self.client.post(self.create_url, {'ground_truth': 'false', 'result': []}, format='json')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertFalse(Annotation.objects.get(pk=response.json()['id']).ground_truth)
+        self.foreign.refresh_from_db()
+        self.assertTrue(self.foreign.ground_truth)
+
+    def test_manager_can_promote_and_demote_another_authors_annotation(self):
+        self.client.force_authenticate(self.world.creator)
+        promoted = self.client.patch(self.detail_url, {'ground_truth': True}, format='json')
+        self.assertEqual(promoted.status_code, 200, promoted.content)
+        self.own.refresh_from_db()
+        self.foreign.refresh_from_db()
+        self.assertTrue(self.own.ground_truth)
+        self.assertFalse(self.foreign.ground_truth)
+        self.assertEqual(self.own.completed_by_id, self.world.member_a.id)
+
+        demoted = self.client.patch(self.detail_url, {'ground_truth': False}, format='json')
+        self.assertEqual(demoted.status_code, 200, demoted.content)
+        self.own.refresh_from_db()
+        self.assertFalse(self.own.ground_truth)
+
+    def test_invalid_manager_update_has_no_groundtruth_or_metadata_side_effects(self):
+        self.client.force_authenticate(self.world.creator)
+        annotations_before = list(Annotation.objects.filter(task=self.task).order_by('id').values())
+        task_before = Task.objects.filter(pk=self.task.id).values().get()
+
+        response = self.client.patch(self.detail_url, {'ground_truth': True, 'lead_time': 'invalid'}, format='json')
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(list(Annotation.objects.filter(task=self.task).order_by('id').values()), annotations_before)
+        self.assertEqual(Task.objects.filter(pk=self.task.id).values().get(), task_before)
+
+    def test_manager_can_create_groundtruth(self):
+        self.client.force_authenticate(self.world.creator)
+        response = self.client.post(self.create_url, {'ground_truth': True, 'result': []}, format='json')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(Annotation.objects.get(pk=response.json()['id']).ground_truth)
+        self.foreign.refresh_from_db()
+        self.assertFalse(self.foreign.ground_truth)
 
 
 class PredictionAccessTests(APITestCase):
