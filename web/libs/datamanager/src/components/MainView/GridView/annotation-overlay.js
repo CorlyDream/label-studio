@@ -21,8 +21,12 @@ export function getImageLabels(config, field) {
     if (Number.isFinite(opacity) && opacity >= 0 && opacity <= 1) fillOpacities[attrs.name] = opacity;
   }
   for (const el of elements.filter((el) => el.tagName.toLowerCase() === "label")) {
+    // Labels may be grouped inside Views; their owner is the enclosing label control.
+    let control = el.parentElement;
+    while (control && !control.tagName.toLowerCase().endsWith("labels")) control = control.parentElement;
+    if (!control) continue;
     const label = el.getAttribute("alias") || el.getAttribute("value");
-    colors[`${el.parentElement?.getAttribute("name")}:${label}`] =
+    colors[`${control.getAttribute("name")}:${label}`] =
       el.getAttribute("background") || ColorScheme.make_color({ seed: el.getAttribute("value") })[0];
   }
   return { imageNames, colors, fillOpacities };

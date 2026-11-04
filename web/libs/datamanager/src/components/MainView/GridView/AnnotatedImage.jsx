@@ -96,16 +96,16 @@ export function AnnotatedImage({ task, image, field, config, enabled, loadTask, 
         current = false;
       };
     loadGridPreview(
-      () => loadTask("task", { taskID: taskId, annotations_stub: false, annotations_ordering: "-id" }),
+      () => loadTask("taskAnnotations", { taskID: taskId }),
       () => current,
     )
       .then((data) => {
         if (!current) return;
-        if (!Array.isArray(data?.annotations)) throw new Error("Missing annotations");
+        if (!Array.isArray(data)) throw new Error("Missing annotations");
         setState({
           taskId,
-          annotation: selectPreviewAnnotation(data.annotations),
-          count: data.annotations.filter((a) => !a.was_cancelled).length,
+          annotation: selectPreviewAnnotation(data),
+          count: data.filter((a) => !a.was_cancelled).length,
         });
       })
       .catch(() => {

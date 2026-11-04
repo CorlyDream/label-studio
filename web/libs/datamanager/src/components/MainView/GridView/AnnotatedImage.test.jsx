@@ -21,9 +21,31 @@ const result = {
     polygonlabels: ["shell"],
   },
 };
-const response = { annotations: [{ id: 7, result: [result] }] };
+const response = [{ id: 7, result: [result] }];
 
 describe("annotated grid image", () => {
+  it("loads the latest submitted annotation through the annotation-only endpoint", async () => {
+    const loadTask = mock(async () => [
+      { id: 3, result: [] },
+      { id: 7, result: [result] },
+      { id: 9, was_cancelled: true, result: [] },
+    ]);
+    const { container } = render(
+      <AnnotatedImage task={task} image="/image.jpg" field="image" config={config} enabled loadTask={loadTask} />,
+    );
+    await waitFor(() => expect(screen.getByText("Annotation #7 · latest of 2")).toBeInTheDocument());
+    expect(container.querySelector("polygon")).not.toBeNull();
+    expect(loadTask).toHaveBeenCalledWith("taskAnnotations", { taskID: 1 });
+    expect(loadTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports an empty annotation list as having no submitted annotations", async () => {
+    render(
+      <AnnotatedImage task={task} image="/image.jpg" field="image" config={config} enabled loadTask={async () => []} />,
+    );
+    await waitFor(() => expect(screen.getByText("No submitted annotations")).toBeInTheDocument());
+  });
+
   it("renders aligned polygon geometry and hides it without requesting annotations", async () => {
     const loadTask = mock(async () => response);
     const { container, rerender } = render(
@@ -114,7 +136,7 @@ describe("annotated grid image", () => {
     const first = render(<AnnotatedImage {...props} />);
     await waitFor(() => expect(first.container.querySelector("polygon")).not.toBeNull());
     first.unmount();
-    responseNow = { annotations: [{ id: 7, result: [] }] };
+    responseNow = [{ id: 7, result: [] }];
     const second = render(<AnnotatedImage {...props} />);
     await waitFor(() => expect(screen.getByText("Annotation #7")).toBeInTheDocument());
     expect(second.container.querySelector("polygon")).toBeNull();
@@ -128,7 +150,7 @@ describe("annotated grid image", () => {
         field="image"
         config={config}
         enabled
-        loadTask={async () => ({ annotations: [{ id: 7, result: [{ ...result, image_rotation: 90 }] }] })}
+        loadTask={async () => [{ id: 7, result: [{ ...result, image_rotation: 90 }] }]}
       />,
     );
     await waitFor(() => expect(screen.getByText("Partial preview · open task")).toBeInTheDocument());

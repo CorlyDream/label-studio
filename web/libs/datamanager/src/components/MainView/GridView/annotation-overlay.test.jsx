@@ -24,6 +24,15 @@ describe("annotation grid data", () => {
     expect(labels.colors["outline:scratch"]).toBe("#00ff00");
   });
 
+  it("resolves nested labels to their enclosing control, including aliases and named views", () => {
+    const labels = getImageLabels(
+      '<View><Image name="image" value="$image"/><PolygonLabels name="outline" toName="image"><View name="group"><View><Label value="shell" alias="edge" background="#ff0000"/></View></View></PolygonLabels><BrushLabels name="defects" toName="image"><View><Label value="shell" alias="edge" background="#00ff00"/></View></BrushLabels></View>',
+      "image",
+    );
+    expect(labels.colors["outline:edge"]).toBe("#ff0000");
+    expect(labels.colors["defects:edge"]).toBe("#00ff00");
+  });
+
   it("uses brush alpha and rejects inconsistent dimensions", () => {
     const rle = Array.from(encode(new Uint8Array([0, 0, 0, 255, 255, 255, 255, 0]), 8));
     expect(Array.from(decodeBrushMask(rle, 2, 1, "#ff0000"))).toEqual([255, 0, 0, 255, 255, 0, 0, 0]);
