@@ -2,6 +2,7 @@
 
 import base64
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -133,8 +134,10 @@ class StorageAccessTests(APITestCase):
                 format='json',
             )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertFalse(LocalFilesImportStorage.objects.filter(path=LOCAL_PATH_A_CHILD).exists())
-        self.assertTrue(LocalFilesImportStorage.objects.filter(project=world.project_1, path=LOCAL_PATH_A).exists())
+        self.assertFalse(LocalFilesImportStorage.objects.filter(path=str(Path(LOCAL_PATH_A_CHILD))).exists())
+        self.assertTrue(
+            LocalFilesImportStorage.objects.filter(project=world.project_1, path=str(Path(LOCAL_PATH_A))).exists()
+        )
 
     def test_separate_local_directories_can_be_saved(self):
         world = make_access_world()
@@ -146,7 +149,9 @@ class StorageAccessTests(APITestCase):
                 format='json',
             )
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertTrue(LocalFilesImportStorage.objects.filter(project=world.project_1, path='/data/project-b').exists())
+        self.assertTrue(
+            LocalFilesImportStorage.objects.filter(project=world.project_1, path=str(Path('/data/project-b'))).exists()
+        )
 
     def test_storage_directory_and_key_boundaries(self):
         from io_storages.localfiles.functions import key_within_prefix, storage_directories_overlap
@@ -196,12 +201,8 @@ class StorageAccessTests(APITestCase):
         )
         # the helper: an empty prefix is the whole keyspace, `..` and absolute keys stay 400
         self.assertIsNone(storage_key_boundary_response(storage, 's3://whole-bucket/images/cat.png'))
-        self.assertEqual(
-            storage_key_boundary_response(storage, 's3://whole-bucket/../secret').status_code, 400
-        )
-        self.assertEqual(
-            storage_key_boundary_response(storage, 's3://whole-bucket//etc/passwd').status_code, 400
-        )
+        self.assertEqual(storage_key_boundary_response(storage, 's3://whole-bucket/../secret').status_code, 400)
+        self.assertEqual(storage_key_boundary_response(storage, 's3://whole-bucket//etc/passwd').status_code, 400)
 
         # the endpoint: a member opens a normal key, and traversal is still refused before signing
         self.client.force_authenticate(world.member_a)
@@ -229,11 +230,11 @@ class StorageAccessTests(APITestCase):
             url = reverse('storages:localfiles_data') + f'?d={relative}'
             with override_settings(LOCAL_FILES_SERVING_ENABLED=True, LOCAL_FILES_DOCUMENT_ROOT=root):
                 self.client.force_authenticate(world.member_a)
-                allowed = self.client.get(url)
+                with closing(self.client.get(url)) as allowed:
+                    self.assertEqual(allowed.status_code, 200)
+                    self.assertIn(b'local-secret-bytes', b''.join(allowed.streaming_content))
                 self.client.force_authenticate(world.member_b)
                 hidden = self.client.get(url)
-        self.assertEqual(allowed.status_code, 200)
-        self.assertIn(b'local-secret-bytes', b''.join(allowed.streaming_content))
         self.assertEqual(hidden.status_code, 404)
         self.assertNotIn(b'local-secret-bytes', hidden.content)
 
