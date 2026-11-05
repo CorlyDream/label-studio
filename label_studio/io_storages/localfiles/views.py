@@ -71,6 +71,9 @@ def build_localfile_response(
     content_type = content_type or 'application/octet-stream'
 
     response = RangedFileResponse(request, file_handle, content_type=content_type)
+    # RangedFileReader does not expose close(), so Django cannot register
+    # the underlying file automatically as it does for a regular FileResponse.
+    response._resource_closers.append(file_handle.close)
     response['ETag'] = etag  # Enables client-side caching for unchanged files.
     return response
 

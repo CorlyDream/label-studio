@@ -202,3 +202,24 @@ def test_localfiles_data_returns_not_modified_for_matching_etag(
 
     assert cached_response.status_code == 304
     assert cached_response['ETag'] == etag
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('range_header', [None, 'bytes=1-3'])
+@pytest.mark.parametrize('consume', [False, True])
+def test_localfile_response_closes_underlying_file(tmp_path, range_header, consume):
+    from django.test import RequestFactory
+    from io_storages.localfiles.views import build_localfile_response
+
+    target = tmp_path / 'stream.txt'
+    target.write_bytes(b'abcdef')
+    headers = {'HTTP_RANGE': range_header} if range_header else {}
+    response = build_localfile_response(RequestFactory().get('/', **headers), str(target), None)
+    handle = response.ranged_file.f
+    try:
+        if consume:
+            assert b''.join(response.streaming_content) == (b'bcd' if range_header else b'abcdef')
+        response.close()
+        assert handle.closed
+    finally:
+        handle.close()
