@@ -236,6 +236,9 @@ def test_snapshot_conversion_fetches_media_as_the_user_who_converts(business_cli
     settings.HOSTNAME = media_server
     settings.DOMAIN_FROM_REQUEST = False
     project = make_project({'label_config': IMAGE_CONFIG}, business_client.user, use_ml_backend=False)
+    # A different authorized manager converts the original creator's snapshot.
+    project.created_by = member
+    project.save(update_fields=['created_by'])
     export = Export.objects.create(project=project, status=Export.Status.COMPLETED, created_by=business_client.user)
     tasks = [_task(1, f'{media_server}/data/upload/1/image.png')]
     export.file.save(f'{project.id}/snapshot.json', ContentFile(json.dumps(tasks).encode()))

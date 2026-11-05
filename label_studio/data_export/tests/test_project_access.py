@@ -1,9 +1,8 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
 
-from unittest.mock import patch
-
 import io
 import os
+from unittest.mock import patch
 
 from data_export.models import ConvertedFormat, Export
 from django.conf import settings
@@ -56,8 +55,9 @@ class ExportAccessTests(APITestCase):
             opened.append(args)
             return RangedFileResponse(*args, **kwargs)
 
-        with patch('data_export.models.Export.run_file_exporting') as export_job, patch(
-            'data_export.api.RangedFileResponse', side_effect=track_open
+        with (
+            patch('data_export.models.Export.run_file_exporting') as export_job,
+            patch('data_export.api.RangedFileResponse', side_effect=track_open),
         ):
             created = self.client.post(_export_list_url(world.project_1), {}, format='json')
             downloaded = self.client.get(_export_download_url(world.project_1, existing))
@@ -180,8 +180,9 @@ class ExportAccessTests(APITestCase):
                 return []
             return real_listdir(path)
 
-        with patch('data_export.api.DataExport.generate_export_file', side_effect=fake_generate), patch(
-            'data_export.api.os.listdir', side_effect=track_listdir
+        with (
+            patch('data_export.api.DataExport.generate_export_file', side_effect=fake_generate),
+            patch('data_export.api.os.listdir', side_effect=track_listdir),
         ):
             sync_export = self.client.get(
                 reverse('data_export:api-projects:project-export', kwargs={'pk': world.project_1.id})

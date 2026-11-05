@@ -3,7 +3,6 @@ import time
 from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
-from label_studio.core.argparser import parse_input_args
 from organizations.models import OrganizationMember
 from organizations.tests.factories import OrganizationFactory
 from projects.models import ProjectMember
@@ -14,6 +13,8 @@ from server import _create_user
 from users.admin import user_may_use_django_admin
 from users.project_access import get_user_ids_in_projects
 from users.tests.factories import UserFactory
+
+from label_studio.core.argparser import parse_input_args
 
 
 class TestGetUserIdsInProjects(TestCase):

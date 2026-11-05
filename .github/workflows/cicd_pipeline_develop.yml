@@ -35,18 +35,6 @@ jobs:
     with:
       head_sha: ${{ github.event.pull_request.head.sha || github.event.after }}
 
-  build-docker:
-    name: "Build"
-    if: github.repository_owner == 'HumanSignal'
-    permissions:
-      contents: read
-      checks: write
-    uses: ./.github/workflows/docker-build.yml
-    with:
-      sha: ${{ github.event.pull_request.head.sha || github.event.after }}
-      branch_name: ${{ github.event.pull_request.head.ref || github.ref_name }}
-    secrets: inherit
-
   pytest:
     name: "Tests"
     uses: ./.github/workflows/tests.yml
@@ -92,7 +80,6 @@ jobs:
       - biome
       - pytest
       - migrations
-      - build-docker
       - tests-yarn-unit
       - tests-yarn-lsf
     runs-on: ubuntu-latest
@@ -100,5 +87,5 @@ jobs:
       - name: Decide whether the needed jobs succeeded or failed
         uses: re-actors/alls-green@release/v1
         with:
-          allowed-skips: gitleaks, bandit, ruff, biome, pytest, migrations, conda-test, build-docker, tests-yarn-unit, tests-yarn-lsf
+          allowed-skips: gitleaks, bandit, ruff, biome, pytest, migrations, conda-test, tests-yarn-unit, tests-yarn-lsf
           jobs: ${{ toJSON(needs) }}

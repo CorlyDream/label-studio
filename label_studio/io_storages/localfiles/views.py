@@ -11,12 +11,12 @@ from typing import Optional
 from core.permissions import all_permissions
 from django.conf import settings
 from django.db.models import CharField, F, Value
-from projects.action_permissions import ProjectActionPermission
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseNotFound, HttpResponseNotModified
 from drf_spectacular.utils import extend_schema
 from io_storages.localfiles.functions import build_local_files_path, is_within_storage
 from io_storages.localfiles.models import LocalFilesImportStorage
 from projects.access import can_access_project
+from projects.action_permissions import ProjectActionPermission
 from ranged_fileresponse import RangedFileResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -71,6 +71,9 @@ def build_localfile_response(
     content_type = content_type or 'application/octet-stream'
 
     response = RangedFileResponse(request, file_handle, content_type=content_type)
+    # RangedFileReader does not expose close(), so Django cannot register
+    # the underlying file automatically as it does for a regular FileResponse.
+    response._resource_closers.append(file_handle.close)
     response['ETag'] = etag  # Enables client-side caching for unchanged files.
     return response
 
@@ -106,7 +109,9 @@ def localfiles_data(request):
         accessible_storage = None
         if localfiles_storage.exists():
             for storage in localfiles_storage:
-                if is_within_storage(full_path_dir, storage.path) and can_access_project(request.user, storage.project):
+                if is_within_storage(full_path_dir, storage.path) and can_access_project(
+                    request.user, storage.project
+                ):
                     accessible_storage = storage
                     break
             user_has_permissions = accessible_storage is not None

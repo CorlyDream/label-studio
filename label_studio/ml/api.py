@@ -63,6 +63,14 @@ def _project_from_payload(project_id):
         return None
 
 
+@method_decorator(
+    name='get',
+    decorator=extend_schema(
+        tags=['Machine Learning'],
+        summary='List interactive ML backends',
+        parameters=[OpenApiParameter(name='project', type=OpenApiTypes.INT, location='query', required=True)],
+    ),
+)
 class MLInteractiveBackendListAPI(generics.ListAPIView):
     """Discover interactive predictors for a project the requester can annotate.
 
