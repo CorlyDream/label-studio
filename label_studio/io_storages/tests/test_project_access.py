@@ -2,7 +2,6 @@
 
 import base64
 import tempfile
-from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -230,9 +229,12 @@ class StorageAccessTests(APITestCase):
             url = reverse('storages:localfiles_data') + f'?d={relative}'
             with override_settings(LOCAL_FILES_SERVING_ENABLED=True, LOCAL_FILES_DOCUMENT_ROOT=root):
                 self.client.force_authenticate(world.member_a)
-                with closing(self.client.get(url)) as allowed:
-                    self.assertEqual(allowed.status_code, 200)
-                    self.assertIn(b'local-secret-bytes', b''.join(allowed.streaming_content))
+                allowed = self.client.get(url)
+                self.assertEqual(allowed.status_code, 200)
+                # Exhausting the test client's stream closes the response while
+                # preserving the transaction used by this TestCase.
+                self.assertIn(b'local-secret-bytes', b''.join(allowed.streaming_content))
+                self.assertTrue(allowed.closed)
                 self.client.force_authenticate(world.member_b)
                 hidden = self.client.get(url)
         self.assertEqual(hidden.status_code, 404)
