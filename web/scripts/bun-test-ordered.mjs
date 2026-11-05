@@ -5,11 +5,12 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 /**
- * Ordered Bun test runner.
+ * Bun test runner with an isolated editor integration suite.
  *
  * - Discovers test files under provided roots
  * - Sorts files lexicographically for deterministic order
- * - Runs Bun with discovered files in that order
+ * - Runs upstream unit tests together and real-editor integration in a fresh process
+ * - Bun treats unprefixed unit paths as filters, so their execution order may differ
  *
  * Usage:
  *   node scripts/bun-test-ordered.mjs [roots...] -- [bun test args...]
@@ -30,7 +31,8 @@ Usage:
 
 Notes:
   - roots default to "." when omitted
-  - file order is deterministic (sorted path list)
+  - file selection is sorted; upstream unit execution order is controlled by Bun
+  - drawing-hotkeys runs in a fresh process with a separate coverage report
   - concurrency is controlled by Bun args; not overridden here
 `);
   process.exit(0);
@@ -96,15 +98,26 @@ function resolveBunExecutable() {
 }
 
 const bunBin = resolveBunExecutable();
-const args = ["test", "--dom", ...bunArgs, ...uniqueSortedFiles];
-const result = spawnSync(bunBin, args, { stdio: "inherit", env: process.env });
-
-if (result.error) {
-  console.error(
-    `bun-test-ordered: failed to run "${bunBin}" (${result.error.code ?? result.error.message}).`,
-    "Install Bun or run from the web package root after bun install so node_modules/.bin/bun exists.",
-  );
-  process.exit(1);
+// This suite starts a real editor. Region unit suites replace shared Registry/model
+// modules, so it needs a fresh process rather than relying on mock cleanup/order.
+const editorIntegration = "libs/editor/src/stores/Annotation/__tests__/label-drawing-hotkeys.test.js";
+const integrationFiles = uniqueSortedFiles.filter((file) => file === editorIntegration);
+const unitFiles = uniqueSortedFiles.filter((file) => file !== editorIntegration);
+let exitCode = 0;
+for (const [name, files] of [
+  ["unit", unitFiles],
+  ["drawing-hotkeys", integrationFiles],
+]) {
+  if (!files.length) continue;
+  const coverageArgs = name !== "unit" && bunArgs.includes("--coverage") ? ["--coverage-dir", `coverage/${name}`] : [];
+  // Use an explicit path for the isolated suite. Keep existing discovery behavior
+  // for upstream unit tests until their shared mocks are independently isolated.
+  const paths = name === "unit" ? files : files.map((file) => `./${file}`);
+  const args = ["test", "--dom", ...bunArgs, ...coverageArgs, ...paths];
+  const result = spawnSync(bunBin, args, { stdio: "inherit", env: process.env });
+  if (result.error) {
+    console.error(`bun-test-ordered: failed to run "${bunBin}": ${result.error.message}`);
+  }
+  if (result.error || result.status !== 0) exitCode = 1;
 }
-
-process.exit(result.status === null ? 1 : result.status);
+process.exit(exitCode);

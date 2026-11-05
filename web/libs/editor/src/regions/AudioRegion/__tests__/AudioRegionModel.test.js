@@ -4,26 +4,17 @@
  */
 import { types } from "mobx-state-tree";
 
-mockModule("../../../tags/object/Audio/model", () => {
-  const { types } = require("mobx-state-tree");
-  return {
-    AudioModel: types
-      .model("AudioModel", {
-        id: types.identifier,
-      })
-      .volatile(() => ({
-        _ws: { duration: 12.5 },
-        _wfFrame: null,
-      })),
-  };
-});
+// Load the real audio graph before constructing a fixture; do not replace its module exports.
+import "../../../tags/object/Audio/model";
+const TestAudioModel = types
+  .model("TestAudioModel", { id: types.identifier })
+  .volatile(() => ({ _ws: { duration: 12.5 }, _wfFrame: null }));
 
 import { AudioRegionModel } from "../AudioRegionModel";
 import NormalizationMixin from "../../../mixins/Normalization";
 import RegionsMixin from "../../../mixins/Regions";
 import { AreaMixin } from "../../../mixins/AreaMixin";
 import { EditableRegion } from "../../EditableRegion";
-import { AudioModel } from "../../../tags/object/Audio/model";
 
 const EditableAudioModel = types.model("EditableAudioModel", {}).volatile(() => ({
   editableFields: [
@@ -39,7 +30,7 @@ const ComposedAudioRegionModel = types.compose(
   NormalizationMixin,
   EditableRegion,
   EditableAudioModel,
-  AudioRegionModel,
+  AudioRegionModel.props({ object: types.reference(TestAudioModel) }),
 );
 
 function createMockAnnotation(overrides = {}) {
@@ -60,7 +51,7 @@ const TestRoot = types
       }),
       { selected: createMockAnnotation(), selectedHistory: null },
     ),
-    audio: types.optional(AudioModel, { id: "a1" }),
+    audio: types.optional(TestAudioModel, { id: "a1" }),
     region: types.optional(ComposedAudioRegionModel, {
       id: "ar1",
       pid: "p1",
