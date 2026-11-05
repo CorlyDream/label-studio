@@ -60,7 +60,7 @@ class TestTaskResolveStorageUri:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_task_resolve_returns_none(self, view, task, project, user, monkeypatch):
-        # Test case where task exists but resolve_storage_uri returns None
+        # The selected storage cannot generate a URL for this file.
         task.resolve_storage_uri.return_value = None
         task.has_permission.return_value = True
         task.project = project
@@ -78,6 +78,8 @@ class TestTaskResolveStorageUri:
         # Add a mock storage that will match the URI
         mock_storage = MagicMock()
         mock_storage.presign = True
+        mock_storage.generate_http_url.return_value = None
+        mock_storage.presign_ttl = 3600
 
         def mock_can_resolve(url):
             return True  # Match any URL
@@ -162,10 +164,8 @@ class TestTaskResolveStorageUri:
         project.get_all_import_storage_objects = [mock_storage]
         task.project = project
 
-        task.resolve_storage_uri.return_value = dict(
-            url='https://presigned-url.com/fileuri',
-            presign_ttl=3600,
-        )
+        mock_storage.generate_http_url.return_value = 'https://presigned-url.com/fileuri'
+        mock_storage.presign_ttl = 3600
         task.has_permission.return_value = True
 
         def mock_task_get(*args, **kwargs):
@@ -188,8 +188,10 @@ class TestTaskResolveStorageUri:
 
         assert response.status_code == status.HTTP_303_SEE_OTHER
         assert response.url == 'https://presigned-url.com/fileuri'
+        assert response.headers['Cache-Control'] == 'no-store, max-age=216000'
         mock_storage.can_resolve_url.assert_called_with(valid_decoded_uri)
-        task.resolve_storage_uri.assert_called_once_with(valid_decoded_uri)
+        mock_storage.generate_http_url.assert_called_once_with(valid_decoded_uri)
+        task.resolve_storage_uri.assert_not_called()
 
     def test_successful_request_with_long_fileuri(self, view, task, project, user, monkeypatch):
         longest_allowable_cloud_storage_path = 'is/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/long/path/that/needs/to/be/1024/characters.png'
@@ -207,10 +209,8 @@ class TestTaskResolveStorageUri:
         project.get_all_import_storage_objects = [mock_storage]
         task.project = project
 
-        task.resolve_storage_uri.return_value = dict(
-            url='https://presigned-url.com/fileuri',
-            presign_ttl=3600,
-        )
+        mock_storage.generate_http_url.return_value = 'https://presigned-url.com/fileuri'
+        mock_storage.presign_ttl = 3600
         task.has_permission.return_value = True
 
         def mock_task_get(*args, **kwargs):
@@ -246,8 +246,10 @@ class TestTaskResolveStorageUri:
 
         assert response.status_code == status.HTTP_303_SEE_OTHER
         assert response.url == 'https://presigned-url.com/fileuri'
+        assert response.headers['Cache-Control'] == 'no-store, max-age=216000'
         mock_storage.can_resolve_url.assert_called_with(longest_uri)
-        task.resolve_storage_uri.assert_called_once_with(longest_uri)
+        mock_storage.generate_http_url.assert_called_once_with(longest_uri)
+        task.resolve_storage_uri.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -293,7 +295,7 @@ class TestProjectResolveStorageUri:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_project_resolve_returns_none(self, view, project, user, monkeypatch):
-        # Test case where project exists but resolve_storage_uri returns None
+        # The selected storage cannot generate a URL for this file.
         project.resolve_storage_uri.return_value = None
         project.has_permission.return_value = True
 
@@ -310,6 +312,8 @@ class TestProjectResolveStorageUri:
         # Add a mock storage that will match the URI
         mock_storage = MagicMock()
         mock_storage.presign = True
+        mock_storage.generate_http_url.return_value = None
+        mock_storage.presign_ttl = 3600
 
         def mock_can_resolve(url):
             return True  # Match any URL
@@ -389,10 +393,8 @@ class TestProjectResolveStorageUri:
 
         project.get_all_import_storage_objects = [mock_storage]
 
-        project.resolve_storage_uri.return_value = dict(
-            url='https://presigned-url.com/fileuri',
-            presign_ttl=3600,
-        )
+        mock_storage.generate_http_url.return_value = 'https://presigned-url.com/fileuri'
+        mock_storage.presign_ttl = 3600
         project.has_permission.return_value = True
 
         def mock_project_get(*args, **kwargs):
@@ -414,8 +416,10 @@ class TestProjectResolveStorageUri:
 
         assert response.status_code == status.HTTP_303_SEE_OTHER
         assert response.url == 'https://presigned-url.com/fileuri'
+        assert response.headers['Cache-Control'] == 'no-store, max-age=216000'
         mock_storage.can_resolve_url.assert_called_with(valid_decoded_uri)
-        project.resolve_storage_uri.assert_called_once_with(valid_decoded_uri)
+        mock_storage.generate_http_url.assert_called_once_with(valid_decoded_uri)
+        project.resolve_storage_uri.assert_not_called()
 
     def test_successful_request_with_long_fileuri(self, view, project, user, monkeypatch):
         longest_allowable_cloud_storage_path = 'is/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/a/long/path/that/needs/to/be/1024/characters/long/so/that/it/gets/hashedis/long/path/that/needs/to/be/1024/characters.png'
@@ -432,10 +436,8 @@ class TestProjectResolveStorageUri:
 
         project.get_all_import_storage_objects = [mock_storage]
 
-        project.resolve_storage_uri.return_value = dict(
-            url='https://presigned-url.com/fileuri',
-            presign_ttl=3600,
-        )
+        mock_storage.generate_http_url.return_value = 'https://presigned-url.com/fileuri'
+        mock_storage.presign_ttl = 3600
         project.has_permission.return_value = True
 
         def mock_project_get(*args, **kwargs):
@@ -472,5 +474,7 @@ class TestProjectResolveStorageUri:
 
         assert response.status_code == status.HTTP_303_SEE_OTHER
         assert response.url == 'https://presigned-url.com/fileuri'
+        assert response.headers['Cache-Control'] == 'no-store, max-age=216000'
         mock_storage.can_resolve_url.assert_called_with(longest_uri)
-        project.resolve_storage_uri.assert_called_once_with(longest_uri)
+        mock_storage.generate_http_url.assert_called_once_with(longest_uri)
+        project.resolve_storage_uri.assert_not_called()

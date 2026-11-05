@@ -14,6 +14,13 @@ from core.label_config import generate_time_series_json
 from core.permissions import all_permissions
 from core.utils.common import collect_versions
 from core.utils.io import find_file
+from django.conf import settings
+from django.contrib.auth import logout
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
+from django.shortcuts import redirect, render, reverse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+from drf_spectacular.utils import extend_schema
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularJSONAPIView,
@@ -22,13 +29,6 @@ from drf_spectacular.views import (
     SpectacularYAMLAPIView,
 )
 from rest_framework.routers import APIRootView
-from django.conf import settings
-from django.contrib.auth import logout
-from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
-from django.shortcuts import redirect, render, reverse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from drf_spectacular.utils import extend_schema
 from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)

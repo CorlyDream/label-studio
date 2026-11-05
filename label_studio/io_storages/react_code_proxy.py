@@ -6,12 +6,12 @@ from datetime import timedelta
 from urllib.parse import unquote
 
 import jwt
+from core.permissions import all_permissions
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from core.permissions import all_permissions
 from projects.access import can_access_project
 from projects.action_permissions import ProjectActionPermission
 from projects.models import Project

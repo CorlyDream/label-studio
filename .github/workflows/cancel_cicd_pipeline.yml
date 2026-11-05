@@ -18,4 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: hmarr/debug-action@v3.0.0
-      - run: echo CI/CD Pipeline-${{ github.event.pull_request.number || github.event.pull_request.head.ref || github.ref_name }}
+      - run: printf '%s\n' "$PIPELINE_GROUP"
+        env:
+          PIPELINE_GROUP: CI/CD Pipeline-${{ github.event.pull_request.number || github.event.pull_request.head.ref || github.ref_name }}

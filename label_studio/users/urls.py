@@ -2,12 +2,12 @@
 
 from os.path import join
 
+from core.views import MappedAPIRootView
 from django.conf import settings
 from django.conf.urls import include
 from django.urls import path, re_path
 from django.views.static import serve
 from rest_framework import routers
-from core.views import MappedAPIRootView
 from users import api, views
 from users.product_tours import api as product_tours_api
 
