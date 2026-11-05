@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { ToastProvider } from "@humansignal/ui";
 import type { InteractiveController } from "../../controller";
 import { useBackendInference } from "../useBackendInference";
 
@@ -30,7 +32,9 @@ describe("useBackendInference member discovery", () => {
       setError: mock(),
     } as unknown as InteractiveController;
 
-    const { result, rerender } = renderHook(() => useBackendInference(item));
+    const { result, rerender } = renderHook(() => useBackendInference(item), {
+      wrapper: ({ children }) => createElement(ToastProvider, null, children),
+    });
     await waitFor(() => expect(item.setState).toHaveBeenCalledWith("stopped"));
     rerender();
     expect(result.current.predict).not.toBeNull();

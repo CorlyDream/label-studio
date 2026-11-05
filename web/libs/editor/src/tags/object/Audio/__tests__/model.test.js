@@ -79,6 +79,8 @@ mockModule("@humansignal/core", () => {
 
 const MINIMAL_CONFIG = `<View><Audio name="audio" value="$audio" /></View>`;
 
+const audioNodes = new Set();
+
 function createAudioNode(storeRef = { task: { dataObj: { audio: "/test.mp3" } } }) {
   const config = Tree.treeToModel(MINIMAL_CONFIG, storeRef);
   const ViewModel = Registry.getModelByTag("view");
@@ -86,12 +88,17 @@ function createAudioNode(storeRef = { task: { dataObj: { audio: "/test.mp3" } } 
   const children = root?.children ?? [];
   const node = children.find((c) => c?.type === "audio") ?? children[0];
 
-  if (node?.type === "audio") return node;
+  if (node?.type === "audio") {
+    audioNodes.add(node);
+    return node;
+  }
 
   try {
     const actualModelModule = requireActual("../model");
     const ActualAudioModel = actualModelModule?.AudioModel ?? AudioModel;
-    return ActualAudioModel.create({ name: "audio", value: "$audio", type: "audio" });
+    const actualNode = ActualAudioModel.create({ name: "audio", value: "$audio", type: "audio" });
+    audioNodes.add(actualNode);
+    return actualNode;
   } catch {
     return node ?? {};
   }
@@ -105,6 +112,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // onLoad schedules waveform redraws; cancel them before the next fixture.
+  for (const node of audioNodes) node.beforeDestroy();
+  audioNodes.clear();
   window.STORE_INIT_OK = undefined;
 });
 

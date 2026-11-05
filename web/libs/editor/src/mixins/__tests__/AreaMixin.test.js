@@ -8,14 +8,9 @@ import { FF_LSDV_4930 } from "../../utils/feature-flags";
 
 const ff = mockFF();
 
-mockModule("../../regions/Result", () => require("./AreaMixinMockResult"));
-
-delete require.cache[require.resolve("../AreaMixin")];
-delete require.cache[require.resolve("../ReadOnlyMixin")];
-
-const { AreaMixin, AreaMixinBase } = require("../AreaMixin");
-const { ReadOnlyRegionMixin } = require("../ReadOnlyMixin");
-const MockResult = require("./AreaMixinMockResult").default;
+import { AreaMixinBase } from "../AreaMixin";
+import { ReadOnlyRegionMixin } from "../ReadOnlyMixin";
+import MockResult from "./AreaMixinMockResult";
 
 const mockAnnotation = () => ({
   toNames: new Map(),
@@ -76,7 +71,9 @@ const BaseWithVolatiles = types
     },
   }));
 
-const TestArea = types.compose(BaseWithVolatiles, AreaMixinBase, ReadOnlyRegionMixin);
+const TestArea = types
+  .compose(BaseWithVolatiles, AreaMixinBase, ReadOnlyRegionMixin)
+  .props({ results: types.array(MockResult) });
 
 const Root = types
   .model("AreaMixinTestRoot", {

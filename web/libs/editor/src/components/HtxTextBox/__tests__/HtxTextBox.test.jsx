@@ -21,7 +21,6 @@ mockModule("@humansignal/ui", () => {
         { type: "button", onClick, "aria-label": ariaLabel, "data-testid": testId, ...props },
         children,
       ),
-    Tooltip: ({ children, title }) => React.createElement("span", { "data-tooltip": title }, children),
     Typography: React.forwardRef(({ children, ...props }, ref) =>
       React.createElement("span", { ref, "data-testid": "typography", ...props }, children),
     ),

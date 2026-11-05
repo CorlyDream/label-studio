@@ -64,6 +64,9 @@ export const APIConfig = {
     /** Single task (sample) */
     task: "/tasks/:taskID",
 
+    /** Submitted annotations only, without task-detail prediction evaluation */
+    taskAnnotations: "/../tasks/:taskID/annotations",
+
     /** Next task (labelstream, default sequential) */
     nextTask: "/tasks/next",
 
