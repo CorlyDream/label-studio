@@ -6,6 +6,17 @@ export type RegionLabelProps = {
   item: any;
 };
 
+function labelDisplayName(label: any) {
+  if (label.value == null || label.isEmpty) return undefined;
+  if (label.html) {
+    const template = document.createElement("template");
+    template.innerHTML = label.html;
+    const text = template.content.textContent?.trim();
+    if (text) return text;
+  }
+  return label._value || label.value;
+}
+
 const ClassificationLabel = observer(({ item }: { item: any }) => {
   const results = item.results ?? [];
 
@@ -39,7 +50,7 @@ export const RegionLabel = memo(
       return "No Label";
     }
     if (type.includes("label")) {
-      return item.value;
+      return labelDisplayName(item);
     }
     if (type === "reactcode") {
       if (item.values?.length) {
@@ -56,7 +67,14 @@ export const RegionLabel = memo(
       }
     }
     if (type.includes("region") || type.includes("range")) {
-      const labelsInResults = item.labelings.map((result: any) => result.selectedLabels || []);
+      const labelsInResults = item.labelings.map((result: any) =>
+        result.mainValue?.length
+          ? result.mainValue.map(
+              (value: any) =>
+                result.from_name.findLabel(value) ?? { value: Array.isArray(value) ? value.join(" > ") : value },
+            )
+          : result.selectedLabels || [],
+      );
 
       const labels: any[] = [].concat(...labelsInResults);
 
@@ -69,8 +87,8 @@ export const RegionLabel = memo(
               index ? ", " : null,
               // This comes from an Elem tag that was set without a name. The CSS was fixed to make it work,
               // but this is clearly bad CSS usage.
-              <div key={label.id} className={cn("labels-list").toClassName()} style={{ color }}>
-                {label.value || "No label"}
+              <div key={label.id ?? index} className={cn("labels-list").toClassName()} style={{ color }}>
+                {labelDisplayName(label) || "No label"}
               </div>,
             ];
           })}
