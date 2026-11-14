@@ -985,6 +985,119 @@ class TestUserFilterResults(TestCase):
                 self._filter(field, 'equal', [self.user_a.id])
 
 
+class TestDefectLabelFilter(TestCase):
+    label_config = """
+        <View>
+            <Image name="image" value="$image" />
+            <BrushLabels name="defect_mask" toName="image">
+                <Label value="scratch" />
+                <Label value="dent" />
+            </BrushLabels>
+            <Choices name="image_result" toName="image">
+                <Choice value="OK" />
+            </Choices>
+            <PolygonLabels name="appearance_outline" toName="image">
+                <Label value="outer_shell" />
+            </PolygonLabels>
+        </View>
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = ProjectFactory(label_config=cls.label_config)
+        cls.user = UserFactory()
+        cls.scratch_task = TaskFactory(project=cls.project)
+        cls.dent_task = TaskFactory(project=cls.project)
+        cls.other_task = TaskFactory(project=cls.project)
+        cls.cancelled_task = TaskFactory(project=cls.project)
+        cls.prediction_only_task = TaskFactory(project=cls.project)
+
+        def result(label, from_name='defect_mask', result_type='brushlabels'):
+            return [
+                {
+                    'from_name': from_name,
+                    'to_name': 'image',
+                    'type': result_type,
+                    'value': {result_type: [label]},
+                }
+            ]
+
+        AnnotationFactory(
+            task=cls.scratch_task,
+            project=cls.project,
+            completed_by=cls.user,
+            result=result('scratch'),
+        )
+        AnnotationFactory(
+            task=cls.dent_task,
+            project=cls.project,
+            completed_by=cls.user,
+            result=result('dent'),
+        )
+        # Other control tags and labels must not satisfy the defect filter.
+        AnnotationFactory(
+            task=cls.other_task,
+            project=cls.project,
+            completed_by=cls.user,
+            result=result('OK', from_name='image_result', result_type='choices'),
+        )
+        AnnotationFactory(
+            task=cls.other_task,
+            project=cls.project,
+            completed_by=cls.user,
+            result=result('outer_shell', from_name='appearance_outline', result_type='polygonlabels'),
+        )
+        AnnotationFactory(
+            task=cls.cancelled_task,
+            project=cls.project,
+            completed_by=cls.user,
+            was_cancelled=True,
+            result=result('scratch'),
+        )
+        from tasks.tests.factories import PredictionFactory
+
+        PredictionFactory(task=cls.prediction_only_task, project=cls.project, result=result('scratch'))
+
+    def _filter(self, value, operator='contains'):
+        from data_manager.managers import apply_filters
+
+        filters = Filters(
+            conjunction='and',
+            items=[
+                Filter(
+                    filter='filter:tasks:annotations_results_json.defect_mask',
+                    operator=operator,
+                    type='List',
+                    value=value,
+                )
+            ],
+        )
+        return apply_filters(Task.objects.filter(project=self.project), filters, self.project, request=None)
+
+    def test_matches_submitted_defect_label_only(self):
+        actual = set(self._filter('scratch').values_list('id', flat=True))
+
+        self.assertSetEqual(actual, {self.scratch_task.id})
+
+    def test_not_contains_excludes_tasks_with_submitted_defect_label(self):
+        actual = set(self._filter('scratch', operator='not_contains').values_list('id', flat=True))
+
+        self.assertSetEqual(
+            actual,
+            {self.dent_task.id, self.other_task.id, self.cancelled_task.id, self.prediction_only_task.id},
+        )
+
+    def test_stale_or_forged_label_fails_closed(self):
+        actual = set(self._filter('removed-label').values_list('id', flat=True))
+
+        self.assertSetEqual(actual, set())
+
+    def test_multi_value_payload_fails_closed_for_single_select_filter(self):
+        actual = set(self._filter(['scratch', 'dent']).values_list('id', flat=True))
+
+        self.assertSetEqual(actual, set())
+
+
 class TestValidateInListFilter(TestCase):
     """Unit tests for `validate_in_list_filter` (BROS-1203)."""
 

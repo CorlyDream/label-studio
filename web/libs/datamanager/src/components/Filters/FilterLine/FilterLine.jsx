@@ -16,6 +16,19 @@ export const FILTER_CHROME_ICON_SIZE = 20;
 
 export const isFilterEditingDisabled = (field) => field?.disabled || field?.filter_available === false;
 
+export const isFilterValueUnavailable = (field, schema, value) => {
+  if (!field?.isAnnotationResultsFilterColumn) return false;
+  if (!schema || value == null || value === "") return false;
+
+  if (!Array.isArray(schema.items)) return false;
+  const items = schema.items;
+  if (!items.length) return true;
+  const values = new Set(items.map((item) => (typeof item === "object" ? item.value : item)));
+  const selected = schema.multiple && Array.isArray(value) ? value : [value];
+
+  return selected.some((item) => !values.has(item));
+};
+
 /** Title-case label for the shared view conjunction ("and" | "or"). */
 export const formatConjunctionLabel = (conjunction) => (conjunction === "or" ? "Or" : "And");
 
@@ -179,9 +192,15 @@ export const FilterLine = observer(
     // Editing controls are disabled when the tab is locked (UTC-949) or the filter is
     // unavailable (FIT-2173); removal stays governed by lock only so unavailable filters
     // remain removable.
-    const isDisabled = disabled || isFilterEditingDisabled(filter.field);
+    const valueUnavailable = isFilterValueUnavailable(filter.field, filter.schema, filter.currentValue);
+    const isDisabled = disabled || isFilterEditingDisabled(filter.field) || valueUnavailable;
     const lockTooltip = disabled ? disabledTooltip : undefined;
-    const unavailableReason = filter.field.filter_available === false ? filter.field.unavailable_reason : null;
+    const unavailableReason =
+      filter.field.filter_available === false
+        ? filter.field.unavailable_reason
+        : valueUnavailable
+          ? "This saved filter value is no longer available in the project configuration."
+          : null;
 
     // Debounced auto-save: persist current filter state to recents after it settles.
     const saveTimerRef = React.useRef(null);

@@ -10,11 +10,17 @@ from core.utils.common import int_from_request, load_func
 from data_manager.models import View
 from data_manager.prepare_params import PrepareParams
 from django.conf import settings
+from django.db import connection
+from django.db.models import BooleanField, Exists, OuterRef, Q
+from django.db.models.expressions import RawSQL
+from django.db.models.query import QuerySet
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from tasks.models import Task
 
 TASKS = 'tasks:'
+DEFECT_CONTROL_NAME = 'defect_mask'
+DEFECT_FILTER_COLUMN_ID = 'annotations_results_json.defect_mask'
 logger = logging.getLogger(__name__)
 
 
@@ -298,6 +304,29 @@ def get_all_columns(project, *_):
 
     result['columns'].append(data_root)
 
+    # ``defect_mask`` is an annotation-result filter, rather than a task.data
+    # field.  Keep it filter-only so it can be selected in Data Manager without
+    # pretending that the value is stored on Task.
+    parsed_config = project.get_parsed_config()
+    defect_config = parsed_config.get(DEFECT_CONTROL_NAME, {}) if parsed_config else {}
+    if defect_config.get('type') == 'BrushLabels':
+        labels = defect_config.get('labels', [])
+        result['columns'].append(
+            {
+                'id': DEFECT_FILTER_COLUMN_ID,
+                'title': '缺陷类型',
+                'type': 'List',
+                'target': 'tasks',
+                'help': 'Submitted defect labels from the defect_mask annotations',
+                'schema': {
+                    'items': [{'value': label, 'title': label} for label in labels],
+                    'multiple': False,
+                },
+                'visibility_defaults': {'explore': False, 'labeling': False},
+                'project_defined': False,
+            }
+        )
+
     return result
 
 
@@ -382,8 +411,71 @@ def filters_ordering_selected_items_exist(data):
     return data.get('filters') or data.get('ordering') or data.get('selectedItems')
 
 
-def custom_filter_expressions(*args, **kwargs):
-    pass
+def _defect_annotation_queryset(project: Any, label: str) -> QuerySet:
+    """Return submitted, non-cancelled annotations containing one defect label."""
+    from tasks.models import Annotation
+
+    annotations = Annotation.objects.filter(
+        project=project,
+        task=OuterRef('pk'),
+        completed_by__isnull=False,
+        was_cancelled=False,
+    )
+    if connection.vendor == 'sqlite':
+        # SQLite does not implement Django's JSONField ``contains`` lookup.
+        # JSON1 lets us inspect each result region while retaining an EXISTS
+        # predicate and avoiding a Python-side scan of the task list.
+        annotations = annotations.annotate(
+            _has_defect=RawSQL(
+                """
+                EXISTS (
+                    SELECT 1
+                    FROM json_each(result) AS region
+                    WHERE json_extract(region.value, '$.from_name') = %s
+                      AND EXISTS (
+                          SELECT 1
+                          FROM json_each(json_extract(region.value, '$.value.brushlabels')) AS label
+                          WHERE label.value = %s
+                      )
+                )
+                """,
+                [DEFECT_CONTROL_NAME, label],
+                output_field=BooleanField(),
+            )
+        ).filter(_has_defect=True)
+    else:
+        annotations = annotations.filter(
+            result__contains=[{'from_name': DEFECT_CONTROL_NAME, 'value': {'brushlabels': [label]}}]
+        )
+    return annotations
+
+
+def custom_filter_expressions(_filter: Any, field_name: str, project: Any, **kwargs: Any) -> Q | None:
+    """Compile the dynamic BrushLabels defect filter into a correlated EXISTS."""
+    if field_name != DEFECT_FILTER_COLUMN_ID:
+        return None
+
+    control_name = DEFECT_CONTROL_NAME
+    parsed_config = project.get_parsed_config() or {}
+    control = parsed_config.get(control_name, {})
+    configured_labels = set(control.get('labels', [])) if control.get('type') == 'BrushLabels' else set()
+    # The catalog declares a single-select value.  Reject arrays and other
+    # forged shapes instead of silently using the first element.
+    label = _filter.value
+    if not isinstance(label, str):
+        return Q(pk__in=[])
+
+    # A stale or forged label must fail closed.  This also keeps an old saved
+    # View from silently changing meaning after the project config changes.
+    if control_name != DEFECT_CONTROL_NAME or label not in configured_labels:
+        return Q(pk__in=[])
+
+    expression = Exists(_defect_annotation_queryset(project, label))
+    if _filter.operator in ('not_contains', 'not_equal'):
+        return ~expression
+    if _filter.operator in ('contains', 'equal'):
+        return expression
+    return Q(pk__in=[])
 
 
 def preprocess_filter(_filter, *_):
