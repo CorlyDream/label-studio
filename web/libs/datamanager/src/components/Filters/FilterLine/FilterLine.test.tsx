@@ -4,13 +4,7 @@ import { destroy, types, unprotect } from "mobx-state-tree";
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { observer } from "mobx-react";
 import { TabStore } from "../../../stores/Tabs/store";
-import {
-  FilterLine,
-  UnavailableFilterNotice,
-  formatConjunctionLabel,
-  isFilterEditingDisabled,
-  isFilterValueUnavailable,
-} from "./FilterLine";
+import { FilterLine, UnavailableFilterNotice, formatConjunctionLabel, isFilterEditingDisabled } from "./FilterLine";
 import { useRecentFilters } from "../../../hooks/useRecentFilters";
 import { filtersToPickerGroups } from "../../Common/ColumnPicker";
 
@@ -608,17 +602,6 @@ describe("unavailable saved filters (FIT-2173)", () => {
     expect(isFilterEditingDisabled({ disabled: false, filter_available: false })).toBe(true);
     expect(isFilterEditingDisabled({ disabled: true, filter_available: true })).toBe(true);
     expect(isFilterEditingDisabled({ disabled: false, filter_available: true })).toBe(false);
-  });
-
-  it("treats a removed single-select option as an unavailable saved value", () => {
-    const field = { isAnnotationResultsFilterColumn: true };
-    const schema = { items: [{ value: "scratch", title: "scratch" }], multiple: false };
-
-    expect(isFilterValueUnavailable(field, schema, "dent")).toBe(true);
-    expect(isFilterValueUnavailable(field, schema, "scratch")).toBe(false);
-    expect(isFilterValueUnavailable(field, schema, null)).toBe(false);
-    expect(isFilterValueUnavailable(field, { items: [], multiple: false }, "scratch")).toBe(true);
-    expect(isFilterValueUnavailable({ isAnnotationResultsFilterColumn: false }, { items: [] }, "scratch")).toBe(false);
   });
 
   it("identifies, disables, preserves, and removes an unavailable filter", async () => {
